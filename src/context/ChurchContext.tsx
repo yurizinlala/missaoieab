@@ -39,6 +39,7 @@ interface ChurchContextType {
     isSupabaseConnected: boolean;
     // Actions
     addCommitment: (locationId: number, amount: number, name: string) => void;
+    removeCommitment: (id: string) => void;
     updateBaseStats: (locationId: number, field: keyof Location, value: number | string) => void;
     setViewMode: (mode: 'reality' | 'construction') => void;
     setGoal: (goal: number) => void;
@@ -58,32 +59,32 @@ const INITIAL_STATE: ChurchState = {
         {
             id: 1,
             name: "Igreja Sede",
-            disciples: 150,
-            cells: 45,
-            region: "Main",
+            disciples: 20,
+            cells: 8,
+            region: "Sede",
             fullName: "IEAB Sede Internacional",
-            address: "Rua Exemplo, 123 - Centro",
-            pastors: "Pr. Presidente & Pra. Exemplo"
+            address: "Rua Monte Rei, 1161",
+            pastors: "Pr. Evandilson Paiva & Pra. Fátima Paiva"
         },
         {
             id: 2,
-            name: "Congregação Zona Norte",
-            disciples: 50,
-            cells: 15,
-            region: "North",
+            name: "Zona Norte",
+            disciples: 12,
+            cells: 3,
+            region: "Norte",
             fullName: "IEAB Zona Norte",
-            address: "Av. Norte, 456 - Bairro",
-            pastors: "Pr. Local"
+            address: "Rua Artesão Dary Miranda, 1038",
+            pastors: "Pb. Rubens Inácio"
         },
         {
             id: 3,
-            name: "Congregação Transformação",
-            disciples: 30,
-            cells: 8,
-            region: "East",
-            fullName: "IEAB Transformação",
-            address: "Rua Leste, 789 - Bairro",
-            pastors: "Pr. Local 2"
+            name: "Transformação",
+            disciples: 7,
+            cells: 1,
+            region: "Leste",
+            fullName: "Congregação Transformação",
+            address: "Rua dos Bobos, 0",
+            pastors: "Miss. Elionete Pereira"
         }
     ]
 };
@@ -96,7 +97,6 @@ const ChurchContext = createContext<ChurchContextType | undefined>(undefined);
 export const ChurchProvider = ({ children }: { children: ReactNode }) => {
     const [state, setState] = useState<ChurchState>(() => {
         const saved = localStorage.getItem(STORAGE_KEY);
-        // If we have saved data, start with it for faster paint
         return saved ? { ...INITIAL_STATE, ...JSON.parse(saved) } : INITIAL_STATE;
     });
 
@@ -118,21 +118,17 @@ export const ChurchProvider = ({ children }: { children: ReactNode }) => {
         [state.totalDisciples, state.goal]
     );
 
-    // Sync LOCAL (fallback)
+    // Sync LOCAL
     useEffect(() => {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     }, [state]);
 
-    // Sync SUPABASE (Cloud)
+    // Sync SUPABASE
     useEffect(() => {
-        if (!supabase) {
-            console.warn("Supabase not configured. Falling back to local/tab sync only.");
-            return;
-        }
+        if (!supabase) return;
 
         const db = supabase;
 
-        // 1. Initial Fetch
         const fetchCloudState = async () => {
             if (!db) return;
             try {
@@ -146,24 +142,22 @@ export const ChurchProvider = ({ children }: { children: ReactNode }) => {
                     setState({ ...INITIAL_STATE, ...data.data });
                     setIsSupabaseConnected(true);
                 } else if (error && error.code === 'PGRST116') {
-                    // Row doesn't exist, create it with current state
                     await db.from('app_state').insert({ id: 1, data: state });
                     setIsSupabaseConnected(true);
                 }
             } catch (err) {
-                console.error("Failed to sync with Supabase:", err);
+                console.error("Failed to sync:", err);
             }
         };
 
         fetchCloudState();
 
-        // 2. Realtime Subscription
         const channel = db
             .channel('app_state_changes')
             .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'app_state', filter: 'id=eq.1' },
                 (payload) => {
                     if (payload.new && payload.new.data) {
-                        setState(() => payload.new.data); // Use functional update but ignore prev to avoid TS error
+                        setState(() => payload.new.data);
                     }
                 })
             .subscribe((status) => {
@@ -175,10 +169,8 @@ export const ChurchProvider = ({ children }: { children: ReactNode }) => {
         };
     }, []);
 
-    // Sync Helper: Push to Cloud
     const pushToCloud = async (newState: ChurchState) => {
         if (supabase) {
-            // Fire and forget update to DB
             await supabase.from('app_state').upsert({ id: 1, data: newState, updated_at: new Date().toISOString() });
         }
     };
@@ -209,6 +201,29 @@ export const ChurchProvider = ({ children }: { children: ReactNode }) => {
                 commitmentHistory: [newEntry, ...prev.commitmentHistory].slice(0, 50)
             };
 
+            pushToCloud(newState);
+            return newState;
+        });
+    }, []);
+
+    const removeCommitment = useCallback((id: string) => {
+        setState(prev => {
+            const entry = prev.commitmentHistory.find(c => c.id === id);
+            if (!entry) return prev;
+
+            const newLocations = prev.locations.map(loc => {
+                if (loc.id === entry.locationId) {
+                    return { ...loc, disciples: Math.max(0, loc.disciples - entry.amount) };
+                }
+                return loc;
+            });
+
+            const newState = {
+                ...prev,
+                totalDisciples: Math.max(0, prev.totalDisciples - entry.amount),
+                locations: newLocations,
+                commitmentHistory: prev.commitmentHistory.filter(c => c.id !== id)
+            };
             pushToCloud(newState);
             return newState;
         });
@@ -275,7 +290,6 @@ export const ChurchProvider = ({ children }: { children: ReactNode }) => {
     }, []);
 
     const refreshState = useCallback(() => {
-        // Force Fetch
         if (supabase) {
             supabase.from('app_state').select('data').eq('id', 1).single()
                 .then(({ data }) => {
@@ -292,6 +306,7 @@ export const ChurchProvider = ({ children }: { children: ReactNode }) => {
             progressPercent,
             isSupabaseConnected,
             addCommitment,
+            removeCommitment,
             updateBaseStats,
             setViewMode,
             setGoal,
