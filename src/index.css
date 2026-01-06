@@ -1,0 +1,15 @@
+@import url('https://fonts.cdnfonts.com/css/sansation');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply font-sans antialiased text-white bg-deep-blue;
+  }
+}
+
+.font-sansation {
+  font-family: 'Sansation', sans-serif;
+}
