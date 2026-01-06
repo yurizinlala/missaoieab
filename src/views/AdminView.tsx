@@ -55,6 +55,7 @@ export const AdminView = () => {
     const [newCommitment, setNewCommitment] = useState({ name: '', amount: 1, locationId: state.locations[0]?.id || 1 });
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submitSuccess, setSubmitSuccess] = useState(false);
+    const [lastCommitment, setLastCommitment] = useState<{ name: string, amount: number } | null>(null);
     const [isOnline, setIsOnline] = useState(true);
     const [showHistory, setShowHistory] = useState(false);
     const [showAddChurch, setShowAddChurch] = useState(false);
@@ -97,8 +98,12 @@ export const AdminView = () => {
         showToast("✓ Compromisso Adicionado!", churchName);
 
         setIsSubmitting(false);
+        setLastCommitment({ name: newCommitment.name, amount: newCommitment.amount });
         setSubmitSuccess(true);
-        setTimeout(() => setSubmitSuccess(false), 2000);
+        setTimeout(() => {
+            setSubmitSuccess(false);
+            setLastCommitment(null);
+        }, 3000);
 
         setNewCommitment(prev => ({ ...prev, name: '', amount: 1 }));
     };
@@ -242,11 +247,19 @@ export const AdminView = () => {
                                         initial={{ opacity: 0, scale: 0.8 }}
                                         animate={{ opacity: 1, scale: 1 }}
                                         exit={{ opacity: 0, scale: 0.8 }}
-                                        className="absolute inset-0 bg-emerald-500/20 backdrop-blur-sm flex items-center justify-center z-20"
+                                        className="absolute inset-0 bg-emerald-600/95 backdrop-blur-md flex items-center justify-center z-50 p-6 text-center"
                                     >
-                                        <div className="text-emerald-400 flex flex-col items-center">
-                                            <Check size={48} className="mb-2" />
-                                            <span className="font-bold">Registrado!</span>
+                                        <div className="text-white flex flex-col items-center">
+                                            <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mb-4">
+                                                <Check size={40} className="text-white" />
+                                            </div>
+                                            <h3 className="text-2xl font-bold mb-1">Registrado!</h3>
+                                            {lastCommitment && (
+                                                <p className="text-emerald-100 text-lg">
+                                                    <span className="font-bold text-white">{lastCommitment.name}</span> adotou <br />
+                                                    <span className="text-3xl font-bold text-yellow-300">+{lastCommitment.amount}</span> vidas!
+                                                </p>
+                                            )}
                                         </div>
                                     </motion.div>
                                 )}

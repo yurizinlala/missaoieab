@@ -62,7 +62,7 @@ const INITIAL_STATE: ChurchState = {
             disciples: 20,
             cells: 8,
             region: "Sede",
-            fullName: "IEAB Sede Internacional",
+            fullName: "IEAB Sede Natal",
             address: "Rua Monte Rei, 1161",
             pastors: "Pr. Evandilson Paiva & Pra. Fátima Paiva"
         },
