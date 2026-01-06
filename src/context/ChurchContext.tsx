@@ -1,4 +1,6 @@
 import { createContext, useContext, useEffect, useState, ReactNode, useMemo, useCallback } from 'react';
+import { supabase } from '../lib/supabase';
+import { broadcastToast } from '../components/Toaster';
 
 // Types
 export interface Location {
@@ -31,10 +33,11 @@ interface ChurchState {
 
 interface ChurchContextType {
     state: ChurchState;
-    // Computed values (memoized)
+    // Computed values
     totalVidas: number;
     totalCelulas: number;
     progressPercent: number;
+    isSupabaseConnected: boolean;
     // Actions
     addCommitment: (locationId: number, amount: number, name: string) => void;
     updateBaseStats: (locationId: number, field: keyof Location, value: number | string) => void;
@@ -94,13 +97,11 @@ const ChurchContext = createContext<ChurchContextType | undefined>(undefined);
 export const ChurchProvider = ({ children }: { children: ReactNode }) => {
     const [state, setState] = useState<ChurchState>(() => {
         const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) {
-            const parsed = JSON.parse(saved);
-            // Ensure commitmentHistory exists for backwards compatibility
-            return { ...INITIAL_STATE, ...parsed, commitmentHistory: parsed.commitmentHistory || [] };
-        }
-        return INITIAL_STATE;
+        // If we have saved data, start with it for faster paint
+        return saved ? { ...INITIAL_STATE, ...JSON.parse(saved) } : INITIAL_STATE;
     });
+
+    const [isSupabaseConnected, setIsSupabaseConnected] = useState(false);
 
     // Memoized computed values
     const totalVidas = useMemo(() =>
@@ -118,22 +119,73 @@ export const ChurchProvider = ({ children }: { children: ReactNode }) => {
         [state.totalDisciples, state.goal]
     );
 
-    // Persist to localStorage whenever state changes
+    // Sync LOCAL (fallback)
     useEffect(() => {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     }, [state]);
 
-    // Listen for storage changes (Cross-tab sync)
+    // Sync SUPABASE (Cloud)
     useEffect(() => {
-        const handleStorageChange = (e: StorageEvent) => {
-            if (e.key === STORAGE_KEY && e.newValue) {
-                setState(JSON.parse(e.newValue));
+        if (!supabase) {
+            console.warn("Supabase not configured. Falling back to local/tab sync only.");
+            return;
+        }
+
+        // 1. Initial Fetch
+        const fetchCloudState = async () => {
+            try {
+                const { data, error } = await supabase
+                    .from('app_state')
+                    .select('data')
+                    .eq('id', 1)
+                    .single();
+
+                if (data && data.data) {
+                    setState({ ...INITIAL_STATE, ...data.data });
+                    setIsSupabaseConnected(true);
+                } else if (error && error.code === 'PGRST116') {
+                    // Row doesn't exist, create it with current state
+                    await supabase.from('app_state').insert({ id: 1, data: state });
+                    setIsSupabaseConnected(true);
+                }
+            } catch (err) {
+                console.error("Failed to sync with Supabase:", err);
             }
         };
 
-        window.addEventListener('storage', handleStorageChange);
-        return () => window.removeEventListener('storage', handleStorageChange);
+        fetchCloudState();
+
+        // 2. Realtime Subscription
+        const channel = supabase
+            .channel('app_state_changes')
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'app_state', filter: 'id=eq.1' },
+                (payload) => {
+                    if (payload.new && payload.new.data) {
+                        // Received update from cloud
+                        setState(prev => {
+                            // Determine if we need to trigger a toast (hacky diff check or use explicit toast channel)
+                            // For simplicity, we assume toast logic handled by the triggering client separately via broadcast
+                            return payload.new.data;
+                        });
+                    }
+                })
+            .subscribe((status) => {
+                if (status === 'SUBSCRIBED') setIsSupabaseConnected(true);
+            });
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
     }, []);
+
+    // Sync Helper: Push to Cloud
+    const pushToCloud = async (newState: ChurchState) => {
+        if (supabase) {
+            // Optimistic update locally is already handled by state setter
+            // Fire and forget update to DB
+            await supabase.from('app_state').upsert({ id: 1, data: newState, updated_at: new Date().toISOString() });
+        }
+    };
 
     const addCommitment = useCallback((locationId: number, amount: number, name: string) => {
         setState(prev => {
@@ -154,58 +206,86 @@ export const ChurchProvider = ({ children }: { children: ReactNode }) => {
                 timestamp: Date.now()
             };
 
-            return {
+            const newState = {
                 ...prev,
                 totalDisciples: prev.totalDisciples + amount,
                 locations: newLocations,
-                commitmentHistory: [newEntry, ...prev.commitmentHistory].slice(0, 50) // Keep last 50
+                commitmentHistory: [newEntry, ...prev.commitmentHistory].slice(0, 50)
             };
+
+            pushToCloud(newState);
+            return newState;
         });
     }, []);
 
     const updateBaseStats = useCallback((locationId: number, field: keyof Location, value: number | string) => {
-        setState(prev => ({
-            ...prev,
-            locations: prev.locations.map(loc =>
-                loc.id === locationId ? { ...loc, [field]: value } : loc
-            )
-        }));
+        setState(prev => {
+            const newState = {
+                ...prev,
+                locations: prev.locations.map(loc =>
+                    loc.id === locationId ? { ...loc, [field]: value } : loc
+                )
+            };
+            pushToCloud(newState);
+            return newState;
+        });
     }, []);
 
     const setViewMode = useCallback((mode: 'reality' | 'construction') => {
-        setState(prev => ({ ...prev, viewMode: mode }));
+        setState(prev => {
+            const newState = { ...prev, viewMode: mode };
+            pushToCloud(newState);
+            return newState;
+        });
     }, []);
 
     const setGoal = useCallback((goal: number) => {
-        setState(prev => ({ ...prev, goal: Math.max(1, goal) }));
+        setState(prev => {
+            const newState = { ...prev, goal: Math.max(1, goal) };
+            pushToCloud(newState);
+            return newState;
+        });
     }, []);
 
     const addLocation = useCallback((location: Omit<Location, 'id'>) => {
         setState(prev => {
             const maxId = Math.max(...prev.locations.map(l => l.id), 0);
-            return {
+            const newState = {
                 ...prev,
                 locations: [...prev.locations, { ...location, id: maxId + 1 }]
             };
+            pushToCloud(newState);
+            return newState;
         });
     }, []);
 
     const removeLocation = useCallback((id: number) => {
-        setState(prev => ({
-            ...prev,
-            locations: prev.locations.filter(l => l.id !== id)
-        }));
+        setState(prev => {
+            const newState = {
+                ...prev,
+                locations: prev.locations.filter(l => l.id !== id)
+            };
+            pushToCloud(newState);
+            return newState;
+        });
     }, []);
 
     const resetState = useCallback(() => {
         localStorage.removeItem(STORAGE_KEY);
         localStorage.removeItem(TOAST_KEY);
-        setState(INITIAL_STATE);
+        const newState = INITIAL_STATE;
+        setState(newState);
+        pushToCloud(newState);
     }, []);
 
     const refreshState = useCallback(() => {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) setState(JSON.parse(saved));
+        // Force Fetch
+        if (supabase) {
+            supabase.from('app_state').select('data').eq('id', 1).single()
+                .then(({ data }) => {
+                    if (data && data.data) setState(data.data);
+                });
+        }
     }, []);
 
     return (
@@ -214,6 +294,7 @@ export const ChurchProvider = ({ children }: { children: ReactNode }) => {
             totalVidas,
             totalCelulas,
             progressPercent,
+            isSupabaseConnected,
             addCommitment,
             updateBaseStats,
             setViewMode,
