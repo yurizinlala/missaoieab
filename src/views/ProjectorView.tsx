@@ -5,6 +5,7 @@ import { ProjectorLayout } from '../components/layout/ProjectorLayout';
 import { StatsCard } from '../components/ui/StatsCard';
 import { Confetti } from '../components/ui/Confetti';
 import { Toaster } from '../components/Toaster';
+import { AdoptionPopup } from '../components/ui/AdoptionPopup';
 import { Home } from 'lucide-react';
 import { useAnimatedNumber } from '../hooks/useAnimatedNumber';
 
@@ -70,6 +71,7 @@ export const ProjectorView = () => {
     return (
         <ProjectorLayout onOpenAdmin={openAdmin}>
             <Toaster />
+            <AdoptionPopup />
             <Confetti trigger={confettiTrigger} />
 
             <AnimatePresence mode="wait">
