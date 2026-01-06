@@ -4,12 +4,10 @@ import { clsx } from 'clsx';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     Monitor, TrendingUp, Plus, MapPin, Users, Settings,
-    Trash2, PlusCircle, RotateCcw, Wifi, WifiOff,
+    Trash2, PlusCircle, RotateCcw, Wifi, WifiOff, Check,
     Clock, Target, ChevronDown, ChevronUp, Lock
 } from 'lucide-react';
 import { showToast, broadcastToast } from '../components/Toaster';
-import { AdoptionPopup } from '../components/ui/AdoptionPopup';
-// import { triggerAdoptionPopup } from '@/lib/events';
 
 // Component for Debounced Input to prevent Flicker
 const DebouncedInput = ({
@@ -48,14 +46,6 @@ const DebouncedInput = ({
     );
 };
 
-
-const triggerAdoptionSuccess = (name: string, amount: number) => {
-    const payload = { name, amount, timestamp: Date.now() };
-    window.dispatchEvent(new CustomEvent('adoption-popup', { detail: payload }));
-    localStorage.setItem('missao-adoption-popup', JSON.stringify(payload));
-    setTimeout(() => localStorage.removeItem('missao-adoption-popup'), 100);
-};
-
 export const AdminView = () => {
     const {
         state, addCommitment, removeCommitment, updateBaseStats, setViewMode, setGoal,
@@ -64,7 +54,8 @@ export const AdminView = () => {
 
     const [newCommitment, setNewCommitment] = useState({ name: '', amount: 1, locationId: state.locations[0]?.id || 1 });
     const [isSubmitting, setIsSubmitting] = useState(false);
-    /* Unused state removed */
+    const [submitSuccess, setSubmitSuccess] = useState(false);
+    const [lastCommitment, setLastCommitment] = useState<{ name: string, amount: number } | null>(null);
     const [isOnline, setIsOnline] = useState(true);
     const [showHistory, setShowHistory] = useState(false);
     const [showAddChurch, setShowAddChurch] = useState(false);
@@ -101,13 +92,19 @@ export const AdminView = () => {
         addCommitment(newCommitment.locationId, newCommitment.amount, newCommitment.name.trim());
 
         const churchName = state.locations.find(l => l.id === Number(newCommitment.locationId))?.name || 'Local';
-        triggerAdoptionSuccess(newCommitment.name, newCommitment.amount);
         const msg = `${newCommitment.name} +${newCommitment.amount} para ${churchName.replace('Congregação ', '')}!`;
 
         broadcastToast(msg, 'Nova oferta registrada!');
         showToast("✓ Compromisso Adicionado!", churchName);
 
         setIsSubmitting(false);
+        setLastCommitment({ name: newCommitment.name, amount: newCommitment.amount });
+        setSubmitSuccess(true);
+        setTimeout(() => {
+            setSubmitSuccess(false);
+            setLastCommitment(null);
+        }, 3000);
+
         setNewCommitment(prev => ({ ...prev, name: '', amount: 1 }));
     };
 
@@ -244,7 +241,29 @@ export const AdminView = () => {
 
                     {state.viewMode === 'construction' ? (
                         <form onSubmit={handleCommit} className="bg-gray-800 rounded-2xl p-5 border border-gray-700 shadow-xl relative overflow-hidden">
-                            <AdoptionPopup />
+                            <AnimatePresence>
+                                {submitSuccess && (
+                                    <motion.div
+                                        initial={{ opacity: 0, scale: 0.8 }}
+                                        animate={{ opacity: 1, scale: 1 }}
+                                        exit={{ opacity: 0, scale: 0.8 }}
+                                        className="absolute inset-0 bg-emerald-600/95 backdrop-blur-md flex items-center justify-center z-50 p-6 text-center"
+                                    >
+                                        <div className="text-white flex flex-col items-center">
+                                            <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mb-4">
+                                                <Check size={40} className="text-white" />
+                                            </div>
+                                            <h3 className="text-2xl font-bold mb-1">Registrado!</h3>
+                                            {lastCommitment && (
+                                                <p className="text-emerald-100 text-lg">
+                                                    <span className="font-bold text-white">{lastCommitment.name}</span> adotou <br />
+                                                    <span className="text-3xl font-bold text-yellow-300">+{lastCommitment.amount}</span> vidas!
+                                                </p>
+                                            )}
+                                        </div>
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
 
                             <div className="space-y-4 relative z-10">
                                 <div>
@@ -518,7 +537,6 @@ export const AdminView = () => {
                     </div>
                 </section>
             </div>
-            <AdoptionPopup />
         </div>
     );
 };

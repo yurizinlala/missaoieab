@@ -5,7 +5,6 @@ import { ProjectorLayout } from '../components/layout/ProjectorLayout';
 import { StatsCard } from '../components/ui/StatsCard';
 import { Confetti } from '../components/ui/Confetti';
 import { Toaster } from '../components/Toaster';
-import { AdoptionPopup } from '../components/ui/AdoptionPopup';
 import { Home } from 'lucide-react';
 import { useAnimatedNumber } from '../hooks/useAnimatedNumber';
 
@@ -31,6 +30,73 @@ const playCelebrationSound = () => {
     } catch {
         // Audio not supported, ignore
     }
+};
+
+const CommitmentPopup = ({ history }: { history: any[] }) => {
+    const [visible, setVisible] = useState(false);
+    const [currentCommitment, setCurrentCommitment] = useState<any>(null);
+    const lastIdRef = useRef<string | null>(null);
+    const queueRef = useRef<any[]>([]);
+    const isProcessingRef = useRef(false);
+
+    useEffect(() => {
+        if (history.length > 0) {
+            const latest = history[0];
+            // Only trigger for truly new items (compare IDs)
+            if (lastIdRef.current && latest.id !== lastIdRef.current) {
+                // It's a new one! Add to queue
+                queueRef.current.push(latest);
+                processQueue();
+            }
+            lastIdRef.current = latest.id;
+        }
+    }, [history]);
+
+    const processQueue = async () => {
+        if (isProcessingRef.current || queueRef.current.length === 0) return;
+
+        isProcessingRef.current = true;
+        const commit = queueRef.current.shift();
+        setCurrentCommitment(commit);
+        setVisible(true);
+
+        // Show for 5 seconds
+        await new Promise(r => setTimeout(r, 5000));
+
+        setVisible(false);
+        // Wait for exit animation
+        await new Promise(r => setTimeout(r, 500));
+
+        isProcessingRef.current = false;
+        processQueue(); // Next!
+    };
+
+    return (
+        <AnimatePresence>
+            {visible && currentCommitment && (
+                <motion.div
+                    initial={{ x: 100, opacity: 0, scale: 0.8 }}
+                    animate={{ x: 0, opacity: 1, scale: 1 }}
+                    exit={{ x: 100, opacity: 0, scale: 0.8 }}
+                    className="fixed bottom-8 right-8 z-50 bg-slate-900/90 backdrop-blur-xl border border-gold/30 p-6 rounded-2xl shadow-2xl max-w-sm flex items-center gap-4 border-l-4 border-l-gold"
+                >
+                    <div className="bg-gold/20 p-3 rounded-full">
+                        <Home size={32} className="text-gold" />
+                    </div>
+                    <div>
+                        <h3 className="text-emerald-400 font-bold text-sm tracking-uppercase mb-1">NOVO DISCIPULADOR!</h3>
+                        <p className="text-white text-xl font-bold leading-tight">
+                            {currentCommitment.name}
+                        </p>
+                        <p className="text-gray-400 text-sm mt-1">
+                            Adotou <span className="text-gold font-bold">+{currentCommitment.amount} vidas</span> para <br />
+                            <span className="text-white font-medium">{currentCommitment.locationName}</span>
+                        </p>
+                    </div>
+                </motion.div>
+            )}
+        </AnimatePresence>
+    );
 };
 
 export const ProjectorView = () => {
@@ -71,8 +137,8 @@ export const ProjectorView = () => {
     return (
         <ProjectorLayout onOpenAdmin={openAdmin}>
             <Toaster />
-            <AdoptionPopup />
             <Confetti trigger={confettiTrigger} />
+            <CommitmentPopup history={state.commitmentHistory} />
 
             <AnimatePresence mode="wait">
                 {state.viewMode === 'reality' ? (
