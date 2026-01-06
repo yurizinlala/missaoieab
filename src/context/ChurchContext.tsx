@@ -1,6 +1,5 @@
 import { createContext, useContext, useEffect, useState, ReactNode, useMemo, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
-import { broadcastToast } from '../components/Toaster';
 
 // Types
 export interface Location {
@@ -131,10 +130,13 @@ export const ChurchProvider = ({ children }: { children: ReactNode }) => {
             return;
         }
 
+        const db = supabase;
+
         // 1. Initial Fetch
         const fetchCloudState = async () => {
+            if (!db) return;
             try {
-                const { data, error } = await supabase
+                const { data, error } = await db
                     .from('app_state')
                     .select('data')
                     .eq('id', 1)
@@ -145,7 +147,7 @@ export const ChurchProvider = ({ children }: { children: ReactNode }) => {
                     setIsSupabaseConnected(true);
                 } else if (error && error.code === 'PGRST116') {
                     // Row doesn't exist, create it with current state
-                    await supabase.from('app_state').insert({ id: 1, data: state });
+                    await db.from('app_state').insert({ id: 1, data: state });
                     setIsSupabaseConnected(true);
                 }
             } catch (err) {
@@ -156,17 +158,12 @@ export const ChurchProvider = ({ children }: { children: ReactNode }) => {
         fetchCloudState();
 
         // 2. Realtime Subscription
-        const channel = supabase
+        const channel = db
             .channel('app_state_changes')
             .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'app_state', filter: 'id=eq.1' },
                 (payload) => {
                     if (payload.new && payload.new.data) {
-                        // Received update from cloud
-                        setState(prev => {
-                            // Determine if we need to trigger a toast (hacky diff check or use explicit toast channel)
-                            // For simplicity, we assume toast logic handled by the triggering client separately via broadcast
-                            return payload.new.data;
-                        });
+                        setState(() => payload.new.data); // Use functional update but ignore prev to avoid TS error
                     }
                 })
             .subscribe((status) => {
@@ -174,14 +171,13 @@ export const ChurchProvider = ({ children }: { children: ReactNode }) => {
             });
 
         return () => {
-            supabase.removeChannel(channel);
+            db.removeChannel(channel);
         };
     }, []);
 
     // Sync Helper: Push to Cloud
     const pushToCloud = async (newState: ChurchState) => {
         if (supabase) {
-            // Optimistic update locally is already handled by state setter
             // Fire and forget update to DB
             await supabase.from('app_state').upsert({ id: 1, data: newState, updated_at: new Date().toISOString() });
         }
