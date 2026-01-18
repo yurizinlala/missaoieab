@@ -39,7 +39,7 @@ interface ChurchState {
     discipleGoal: number;
     cellGoal: number;
     locations: Location[];
-    viewMode: 'atual' | 'futuro';
+    viewMode: 'atual' | 'metas' | 'projecao';
     adminMode: 'disciples' | 'cells';
     discipleCommitments: CommitmentEntry[];
     cellCommitments: CellCommitmentEntry[];
@@ -68,7 +68,7 @@ interface ChurchContextType {
     removeCellCommitment: (id: string) => void;
     // Actions - General
     updateBaseStats: (locationId: number, field: keyof Location, value: number | string) => void;
-    setViewMode: (mode: 'atual' | 'futuro') => void;
+    setViewMode: (mode: 'atual' | 'metas' | 'projecao') => void;
     setAdminMode: (mode: 'disciples' | 'cells') => void;
     setDiscipleGoal: (goal: number) => void;
     setCellGoal: (goal: number) => void;
@@ -358,7 +358,7 @@ export const ChurchProvider = ({ children }: { children: ReactNode }) => {
         });
     }, []);
 
-    const setViewMode = useCallback((mode: 'atual' | 'futuro') => {
+    const setViewMode = useCallback((mode: 'atual' | 'metas' | 'projecao') => {
         setState(prev => {
             const newState = { ...prev, viewMode: mode };
             pushToCloud(newState);

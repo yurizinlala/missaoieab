@@ -322,26 +322,38 @@ export const AdminView = () => {
 
                 {/* 2. Projector Mode Switch */}
                 <section className="bg-gray-800/30 rounded-xl p-3 border border-gray-700/50">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-2">
                         <span className="text-xs text-gray-400">Tela do Projetor:</span>
-                        <div className="flex bg-gray-900 rounded-lg p-1">
+                        <div className="grid grid-cols-3 gap-1 bg-gray-900 rounded-lg p-1">
                             <button
                                 onClick={() => setViewMode('atual')}
                                 className={clsx(
-                                    "px-3 py-1 rounded text-xs font-bold transition-all",
+                                    "px-2 py-2 rounded text-xs font-bold transition-all flex flex-col items-center gap-1",
                                     state.viewMode === 'atual' ? "bg-blue-600 text-white" : "text-gray-500 hover:text-white"
                                 )}
                             >
-                                <Eye size={12} className="inline mr-1" />Atual
+                                <Eye size={14} />
+                                <span>Atual</span>
                             </button>
                             <button
-                                onClick={() => setViewMode('futuro')}
+                                onClick={() => setViewMode('metas')}
                                 className={clsx(
-                                    "px-3 py-1 rounded text-xs font-bold transition-all",
-                                    state.viewMode === 'futuro' ? "bg-gold text-deep-blue" : "text-gray-500 hover:text-white"
+                                    "px-2 py-2 rounded text-xs font-bold transition-all flex flex-col items-center gap-1",
+                                    state.viewMode === 'metas' ? "bg-gold text-deep-blue" : "text-gray-500 hover:text-white"
                                 )}
                             >
-                                <Sparkles size={12} className="inline mr-1" />Metas
+                                <Target size={14} />
+                                <span>Metas</span>
+                            </button>
+                            <button
+                                onClick={() => setViewMode('projecao')}
+                                className={clsx(
+                                    "px-2 py-2 rounded text-xs font-bold transition-all flex flex-col items-center gap-1",
+                                    state.viewMode === 'projecao' ? "bg-emerald-600 text-white" : "text-gray-500 hover:text-white"
+                                )}
+                            >
+                                <Sparkles size={14} />
+                                <span>Projeção</span>
                             </button>
                         </div>
                     </div>
