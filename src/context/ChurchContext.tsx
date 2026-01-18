@@ -5,6 +5,10 @@ import { supabase } from '../lib/supabase';
 export interface Location {
     id: number;
     name: string;
+    // Base values (Situação Atual)
+    baseDisciples: number;
+    baseCells: number;
+    // Computed totals (Base + Commitments) - for Situação Futura
     disciples: number;
     cells: number;
     region: string;
@@ -22,28 +26,50 @@ export interface CommitmentEntry {
     timestamp: number;
 }
 
+export interface CellCommitmentEntry {
+    id: string;
+    leaderName: string;
+    amount: number;
+    locationId: number;
+    locationName: string;
+    timestamp: number;
+}
+
 interface ChurchState {
-    goal: number;
+    discipleGoal: number;
+    cellGoal: number;
     locations: Location[];
-    totalDisciples: number;
-    viewMode: 'reality' | 'construction';
-    commitmentHistory: CommitmentEntry[];
+    viewMode: 'atual' | 'futuro';
+    adminMode: 'disciples' | 'cells';
+    discipleCommitments: CommitmentEntry[];
+    cellCommitments: CellCommitmentEntry[];
 }
 
 interface ChurchContextType {
     state: ChurchState;
-    // Computed values
-    totalVidas: number;
-    totalCelulas: number;
-    progressPercent: number;
+    // Computed values - Atual (base)
+    totalVidasAtual: number;
+    totalCelulasAtual: number;
+    // Computed values - Futuro (base + commitments)
+    totalVidasFuturo: number;
+    totalCelulasFuturo: number;
+    // Progress
+    discipleProgressPercent: number;
+    cellProgressPercent: number;
     isSupabaseConnected: boolean;
-    // Actions
-    addCommitment: (locationId: number, amount: number, name: string) => void;
-    removeCommitment: (id: string) => void;
+    // Actions - Disciples
+    addDiscipleCommitment: (locationId: number, amount: number, name: string) => void;
+    removeDiscipleCommitment: (id: string) => void;
+    // Actions - Cells
+    addCellCommitment: (locationId: number, amount: number, leaderName: string) => void;
+    removeCellCommitment: (id: string) => void;
+    // Actions - General
     updateBaseStats: (locationId: number, field: keyof Location, value: number | string) => void;
-    setViewMode: (mode: 'reality' | 'construction') => void;
-    setGoal: (goal: number) => void;
-    addLocation: (location: Omit<Location, 'id'>) => void;
+    setViewMode: (mode: 'atual' | 'futuro') => void;
+    setAdminMode: (mode: 'disciples' | 'cells') => void;
+    setDiscipleGoal: (goal: number) => void;
+    setCellGoal: (goal: number) => void;
+    addLocation: (location: Omit<Location, 'id' | 'disciples' | 'cells'>) => void;
     removeLocation: (id: number) => void;
     resetState: () => void;
     refreshState: () => void;
@@ -51,14 +77,18 @@ interface ChurchContextType {
 
 // Initial Data
 const INITIAL_STATE: ChurchState = {
-    goal: 80,
-    totalDisciples: 0,
-    viewMode: 'reality',
-    commitmentHistory: [],
+    discipleGoal: 80,
+    cellGoal: 20,
+    viewMode: 'atual',
+    adminMode: 'disciples',
+    discipleCommitments: [],
+    cellCommitments: [],
     locations: [
         {
             id: 1,
             name: "Igreja Sede",
+            baseDisciples: 20,
+            baseCells: 8,
             disciples: 20,
             cells: 8,
             region: "Sede",
@@ -69,6 +99,8 @@ const INITIAL_STATE: ChurchState = {
         {
             id: 2,
             name: "Zona Norte",
+            baseDisciples: 12,
+            baseCells: 3,
             disciples: 12,
             cells: 3,
             region: "Norte",
@@ -79,6 +111,8 @@ const INITIAL_STATE: ChurchState = {
         {
             id: 3,
             name: "Transformação",
+            baseDisciples: 7,
+            baseCells: 1,
             disciples: 7,
             cells: 1,
             region: "Leste",
@@ -89,33 +123,84 @@ const INITIAL_STATE: ChurchState = {
     ]
 };
 
-const STORAGE_KEY = 'missao-ieab-state';
-const TOAST_KEY = 'missao-latest-toast';
+const STORAGE_KEY = 'missao-ieab-state-v2';
 
 const ChurchContext = createContext<ChurchContextType | undefined>(undefined);
+
+// Helper: Migrate old state to new structure
+const migrateState = (oldState: any): ChurchState => {
+    if (oldState.discipleGoal !== undefined) {
+        // Already new format
+        return { ...INITIAL_STATE, ...oldState };
+    }
+    
+    // Migrate from old format
+    const migrated: ChurchState = {
+        discipleGoal: oldState.goal || 80,
+        cellGoal: 20,
+        viewMode: 'atual',
+        adminMode: 'disciples',
+        discipleCommitments: oldState.commitmentHistory || [],
+        cellCommitments: [],
+        locations: (oldState.locations || INITIAL_STATE.locations).map((loc: any) => ({
+            ...loc,
+            baseDisciples: loc.disciples || loc.baseDisciples || 0,
+            baseCells: loc.cells || loc.baseCells || 0,
+            disciples: loc.disciples || 0,
+            cells: loc.cells || 0
+        }))
+    };
+    
+    return migrated;
+};
 
 export const ChurchProvider = ({ children }: { children: ReactNode }) => {
     const [state, setState] = useState<ChurchState>(() => {
         const saved = localStorage.getItem(STORAGE_KEY);
-        return saved ? { ...INITIAL_STATE, ...JSON.parse(saved) } : INITIAL_STATE;
+        if (saved) {
+            return migrateState(JSON.parse(saved));
+        }
+        // Try old key
+        const oldSaved = localStorage.getItem('missao-ieab-state');
+        if (oldSaved) {
+            return migrateState(JSON.parse(oldSaved));
+        }
+        return INITIAL_STATE;
     });
 
     const [isSupabaseConnected, setIsSupabaseConnected] = useState(false);
 
-    // Memoized computed values
-    const totalVidas = useMemo(() =>
-        state.locations.reduce((acc, curr) => acc + curr.disciples, 0),
+    // Computed values - Atual (base only)
+    const totalVidasAtual = useMemo(() =>
+        state.locations.reduce((acc, curr) => acc + curr.baseDisciples, 0),
         [state.locations]
     );
 
-    const totalCelulas = useMemo(() =>
-        state.locations.reduce((acc, curr) => acc + curr.cells, 0),
+    const totalCelulasAtual = useMemo(() =>
+        state.locations.reduce((acc, curr) => acc + curr.baseCells, 0),
         [state.locations]
     );
 
-    const progressPercent = useMemo(() =>
-        Math.min((state.totalDisciples / state.goal) * 100, 100),
-        [state.totalDisciples, state.goal]
+    // Computed values - Futuro (base + commitments)
+    const totalVidasFuturo = useMemo(() => {
+        const fromCommitments = state.discipleCommitments.reduce((acc, c) => acc + c.amount, 0);
+        return totalVidasAtual + fromCommitments;
+    }, [state.discipleCommitments, totalVidasAtual]);
+
+    const totalCelulasFuturo = useMemo(() => {
+        const fromCommitments = state.cellCommitments.reduce((acc, c) => acc + c.amount, 0);
+        return totalCelulasAtual + fromCommitments;
+    }, [state.cellCommitments, totalCelulasAtual]);
+
+    // Progress percentages (based on future values toward goals)
+    const discipleProgressPercent = useMemo(() =>
+        Math.min((totalVidasFuturo / state.discipleGoal) * 100, 100),
+        [totalVidasFuturo, state.discipleGoal]
+    );
+
+    const cellProgressPercent = useMemo(() =>
+        Math.min((totalCelulasFuturo / state.cellGoal) * 100, 100),
+        [totalCelulasFuturo, state.cellGoal]
     );
 
     // Sync LOCAL
@@ -139,7 +224,7 @@ export const ChurchProvider = ({ children }: { children: ReactNode }) => {
                     .single();
 
                 if (data && data.data) {
-                    setState({ ...INITIAL_STATE, ...data.data });
+                    setState(migrateState(data.data));
                     setIsSupabaseConnected(true);
                 } else if (error && error.code === 'PGRST116') {
                     await db.from('app_state').insert({ id: 1, data: state });
@@ -157,7 +242,7 @@ export const ChurchProvider = ({ children }: { children: ReactNode }) => {
             .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'app_state', filter: 'id=eq.1' },
                 (payload) => {
                     if (payload.new && payload.new.data) {
-                        setState(() => payload.new.data);
+                        setState(() => migrateState(payload.new.data));
                     }
                 })
             .subscribe((status) => {
@@ -175,16 +260,11 @@ export const ChurchProvider = ({ children }: { children: ReactNode }) => {
         }
     };
 
-    const addCommitment = useCallback((locationId: number, amount: number, name: string) => {
+    // === DISCIPLE ACTIONS ===
+    const addDiscipleCommitment = useCallback((locationId: number, amount: number, name: string) => {
         setState(prev => {
             const location = prev.locations.find(l => l.id === locationId);
-            const newLocations = prev.locations.map(loc => {
-                if (loc.id === locationId) {
-                    return { ...loc, disciples: loc.disciples + amount };
-                }
-                return loc;
-            });
-
+            
             const newEntry: CommitmentEntry = {
                 id: Date.now().toString(),
                 name,
@@ -196,9 +276,7 @@ export const ChurchProvider = ({ children }: { children: ReactNode }) => {
 
             const newState = {
                 ...prev,
-                totalDisciples: prev.totalDisciples + amount,
-                locations: newLocations,
-                commitmentHistory: [newEntry, ...prev.commitmentHistory].slice(0, 50)
+                discipleCommitments: [newEntry, ...prev.discipleCommitments].slice(0, 100)
             };
 
             pushToCloud(newState);
@@ -206,29 +284,53 @@ export const ChurchProvider = ({ children }: { children: ReactNode }) => {
         });
     }, []);
 
-    const removeCommitment = useCallback((id: string) => {
+    const removeDiscipleCommitment = useCallback((id: string) => {
         setState(prev => {
-            const entry = prev.commitmentHistory.find(c => c.id === id);
-            if (!entry) return prev;
+            const newState = {
+                ...prev,
+                discipleCommitments: prev.discipleCommitments.filter(c => c.id !== id)
+            };
+            pushToCloud(newState);
+            return newState;
+        });
+    }, []);
 
-            const newLocations = prev.locations.map(loc => {
-                if (loc.id === entry.locationId) {
-                    return { ...loc, disciples: Math.max(0, loc.disciples - entry.amount) };
-                }
-                return loc;
-            });
+    // === CELL ACTIONS ===
+    const addCellCommitment = useCallback((locationId: number, amount: number, leaderName: string) => {
+        setState(prev => {
+            const location = prev.locations.find(l => l.id === locationId);
+            
+            const newEntry: CellCommitmentEntry = {
+                id: Date.now().toString(),
+                leaderName,
+                amount,
+                locationId,
+                locationName: location?.name || 'Desconhecido',
+                timestamp: Date.now()
+            };
 
             const newState = {
                 ...prev,
-                totalDisciples: Math.max(0, prev.totalDisciples - entry.amount),
-                locations: newLocations,
-                commitmentHistory: prev.commitmentHistory.filter(c => c.id !== id)
+                cellCommitments: [newEntry, ...prev.cellCommitments].slice(0, 100)
+            };
+
+            pushToCloud(newState);
+            return newState;
+        });
+    }, []);
+
+    const removeCellCommitment = useCallback((id: string) => {
+        setState(prev => {
+            const newState = {
+                ...prev,
+                cellCommitments: prev.cellCommitments.filter(c => c.id !== id)
             };
             pushToCloud(newState);
             return newState;
         });
     }, []);
 
+    // === GENERAL ACTIONS ===
     const updateBaseStats = useCallback((locationId: number, field: keyof Location, value: number | string) => {
         setState(prev => {
             const newState = {
@@ -242,7 +344,7 @@ export const ChurchProvider = ({ children }: { children: ReactNode }) => {
         });
     }, []);
 
-    const setViewMode = useCallback((mode: 'reality' | 'construction') => {
+    const setViewMode = useCallback((mode: 'atual' | 'futuro') => {
         setState(prev => {
             const newState = { ...prev, viewMode: mode };
             pushToCloud(newState);
@@ -250,20 +352,42 @@ export const ChurchProvider = ({ children }: { children: ReactNode }) => {
         });
     }, []);
 
-    const setGoal = useCallback((goal: number) => {
+    const setAdminMode = useCallback((mode: 'disciples' | 'cells') => {
         setState(prev => {
-            const newState = { ...prev, goal: Math.max(1, goal) };
+            const newState = { ...prev, adminMode: mode };
             pushToCloud(newState);
             return newState;
         });
     }, []);
 
-    const addLocation = useCallback((location: Omit<Location, 'id'>) => {
+    const setDiscipleGoal = useCallback((goal: number) => {
+        setState(prev => {
+            const newState = { ...prev, discipleGoal: Math.max(1, goal) };
+            pushToCloud(newState);
+            return newState;
+        });
+    }, []);
+
+    const setCellGoal = useCallback((goal: number) => {
+        setState(prev => {
+            const newState = { ...prev, cellGoal: Math.max(1, goal) };
+            pushToCloud(newState);
+            return newState;
+        });
+    }, []);
+
+    const addLocation = useCallback((location: Omit<Location, 'id' | 'disciples' | 'cells'>) => {
         setState(prev => {
             const maxId = Math.max(...prev.locations.map(l => l.id), 0);
+            const newLocation: Location = {
+                ...location,
+                id: maxId + 1,
+                disciples: location.baseDisciples,
+                cells: location.baseCells
+            };
             const newState = {
                 ...prev,
-                locations: [...prev.locations, { ...location, id: maxId + 1 }]
+                locations: [...prev.locations, newLocation]
             };
             pushToCloud(newState);
             return newState;
@@ -274,7 +398,10 @@ export const ChurchProvider = ({ children }: { children: ReactNode }) => {
         setState(prev => {
             const newState = {
                 ...prev,
-                locations: prev.locations.filter(l => l.id !== id)
+                locations: prev.locations.filter(l => l.id !== id),
+                // Also remove commitments for this location
+                discipleCommitments: prev.discipleCommitments.filter(c => c.locationId !== id),
+                cellCommitments: prev.cellCommitments.filter(c => c.locationId !== id)
             };
             pushToCloud(newState);
             return newState;
@@ -283,7 +410,7 @@ export const ChurchProvider = ({ children }: { children: ReactNode }) => {
 
     const resetState = useCallback(() => {
         localStorage.removeItem(STORAGE_KEY);
-        localStorage.removeItem(TOAST_KEY);
+        localStorage.removeItem('missao-ieab-state');
         const newState = INITIAL_STATE;
         setState(newState);
         pushToCloud(newState);
@@ -293,7 +420,7 @@ export const ChurchProvider = ({ children }: { children: ReactNode }) => {
         if (supabase) {
             supabase.from('app_state').select('data').eq('id', 1).single()
                 .then(({ data }) => {
-                    if (data && data.data) setState(data.data);
+                    if (data && data.data) setState(migrateState(data.data));
                 });
         }
     }, []);
@@ -301,15 +428,22 @@ export const ChurchProvider = ({ children }: { children: ReactNode }) => {
     return (
         <ChurchContext.Provider value={{
             state,
-            totalVidas,
-            totalCelulas,
-            progressPercent,
+            totalVidasAtual,
+            totalCelulasAtual,
+            totalVidasFuturo,
+            totalCelulasFuturo,
+            discipleProgressPercent,
+            cellProgressPercent,
             isSupabaseConnected,
-            addCommitment,
-            removeCommitment,
+            addDiscipleCommitment,
+            removeDiscipleCommitment,
+            addCellCommitment,
+            removeCellCommitment,
             updateBaseStats,
             setViewMode,
-            setGoal,
+            setAdminMode,
+            setDiscipleGoal,
+            setCellGoal,
             addLocation,
             removeLocation,
             resetState,
