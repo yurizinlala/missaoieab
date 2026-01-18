@@ -50,10 +50,13 @@ interface ChurchContextType {
     // Computed values - Atual (base)
     totalVidasAtual: number;
     totalCelulasAtual: number;
+    // Computed values - Commitments only (for goal progress)
+    totalDiscipleCommitments: number;
+    totalCellCommitments: number;
     // Computed values - Futuro (base + commitments)
     totalVidasFuturo: number;
     totalCelulasFuturo: number;
-    // Progress
+    // Progress (commitments only toward goals)
     discipleProgressPercent: number;
     cellProgressPercent: number;
     isSupabaseConnected: boolean;
@@ -133,7 +136,7 @@ const migrateState = (oldState: any): ChurchState => {
         // Already new format
         return { ...INITIAL_STATE, ...oldState };
     }
-    
+
     // Migrate from old format
     const migrated: ChurchState = {
         discipleGoal: oldState.goal || 80,
@@ -150,7 +153,7 @@ const migrateState = (oldState: any): ChurchState => {
             cells: loc.cells || 0
         }))
     };
-    
+
     return migrated;
 };
 
@@ -181,26 +184,37 @@ export const ChurchProvider = ({ children }: { children: ReactNode }) => {
         [state.locations]
     );
 
+    // Computed values - Commitments only (for goals)
+    const totalDiscipleCommitments = useMemo(() =>
+        state.discipleCommitments.reduce((acc, c) => acc + c.amount, 0),
+        [state.discipleCommitments]
+    );
+
+    const totalCellCommitments = useMemo(() =>
+        state.cellCommitments.reduce((acc, c) => acc + c.amount, 0),
+        [state.cellCommitments]
+    );
+
     // Computed values - Futuro (base + commitments)
-    const totalVidasFuturo = useMemo(() => {
-        const fromCommitments = state.discipleCommitments.reduce((acc, c) => acc + c.amount, 0);
-        return totalVidasAtual + fromCommitments;
-    }, [state.discipleCommitments, totalVidasAtual]);
+    const totalVidasFuturo = useMemo(() =>
+        totalVidasAtual + totalDiscipleCommitments,
+        [totalVidasAtual, totalDiscipleCommitments]
+    );
 
-    const totalCelulasFuturo = useMemo(() => {
-        const fromCommitments = state.cellCommitments.reduce((acc, c) => acc + c.amount, 0);
-        return totalCelulasAtual + fromCommitments;
-    }, [state.cellCommitments, totalCelulasAtual]);
+    const totalCelulasFuturo = useMemo(() =>
+        totalCelulasAtual + totalCellCommitments,
+        [totalCelulasAtual, totalCellCommitments]
+    );
 
-    // Progress percentages (based on future values toward goals)
+    // Progress percentages (based on COMMITMENTS ONLY toward goals, no cap)
     const discipleProgressPercent = useMemo(() =>
-        Math.min((totalVidasFuturo / state.discipleGoal) * 100, 100),
-        [totalVidasFuturo, state.discipleGoal]
+        (totalDiscipleCommitments / state.discipleGoal) * 100,
+        [totalDiscipleCommitments, state.discipleGoal]
     );
 
     const cellProgressPercent = useMemo(() =>
-        Math.min((totalCelulasFuturo / state.cellGoal) * 100, 100),
-        [totalCelulasFuturo, state.cellGoal]
+        (totalCellCommitments / state.cellGoal) * 100,
+        [totalCellCommitments, state.cellGoal]
     );
 
     // Sync LOCAL
@@ -264,7 +278,7 @@ export const ChurchProvider = ({ children }: { children: ReactNode }) => {
     const addDiscipleCommitment = useCallback((locationId: number, amount: number, name: string) => {
         setState(prev => {
             const location = prev.locations.find(l => l.id === locationId);
-            
+
             const newEntry: CommitmentEntry = {
                 id: Date.now().toString(),
                 name,
@@ -276,7 +290,7 @@ export const ChurchProvider = ({ children }: { children: ReactNode }) => {
 
             const newState = {
                 ...prev,
-                discipleCommitments: [newEntry, ...prev.discipleCommitments].slice(0, 100)
+                discipleCommitments: [newEntry, ...prev.discipleCommitments]
             };
 
             pushToCloud(newState);
@@ -299,7 +313,7 @@ export const ChurchProvider = ({ children }: { children: ReactNode }) => {
     const addCellCommitment = useCallback((locationId: number, amount: number, leaderName: string) => {
         setState(prev => {
             const location = prev.locations.find(l => l.id === locationId);
-            
+
             const newEntry: CellCommitmentEntry = {
                 id: Date.now().toString(),
                 leaderName,
@@ -311,7 +325,7 @@ export const ChurchProvider = ({ children }: { children: ReactNode }) => {
 
             const newState = {
                 ...prev,
-                cellCommitments: [newEntry, ...prev.cellCommitments].slice(0, 100)
+                cellCommitments: [newEntry, ...prev.cellCommitments]
             };
 
             pushToCloud(newState);
@@ -430,6 +444,8 @@ export const ChurchProvider = ({ children }: { children: ReactNode }) => {
             state,
             totalVidasAtual,
             totalCelulasAtual,
+            totalDiscipleCommitments,
+            totalCellCommitments,
             totalVidasFuturo,
             totalCelulasFuturo,
             discipleProgressPercent,

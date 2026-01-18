@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
     Users, Grid3X3, Plus, MapPin, Settings,
     Trash2, PlusCircle, RotateCcw, Wifi, WifiOff, Check,
-    Clock, Target, ChevronDown, ChevronUp, Download, Eye, EyeOff
+    Clock, Target, ChevronDown, ChevronUp, Download, Eye, Sparkles
 } from 'lucide-react';
 import { showToast, broadcastToast } from '../components/Toaster';
 
@@ -66,7 +66,6 @@ const exportToPDF = (data: any[], type: 'disciples' | 'cells', locations: any[])
         totals[locName] = (totals[locName] || 0) + entry.amount;
     });
 
-    // Create printable HTML
     const html = `
         <!DOCTYPE html>
         <html>
@@ -118,8 +117,8 @@ const exportToPDF = (data: any[], type: 'disciples' | 'cells', locations: any[])
 export const AdminView = () => {
     const {
         state,
-        totalVidasFuturo,
-        totalCelulasFuturo,
+        totalDiscipleCommitments,
+        totalCellCommitments,
         discipleProgressPercent,
         cellProgressPercent,
         addDiscipleCommitment,
@@ -262,7 +261,7 @@ export const AdminView = () => {
 
     const currentHistory = state.adminMode === 'disciples' ? state.discipleCommitments : state.cellCommitments;
     const currentGoal = state.adminMode === 'disciples' ? state.discipleGoal : state.cellGoal;
-    const currentTotal = state.adminMode === 'disciples' ? totalVidasFuturo : totalCelulasFuturo;
+    const currentTotal = state.adminMode === 'disciples' ? totalDiscipleCommitments : totalCellCommitments;
     const currentProgress = state.adminMode === 'disciples' ? discipleProgressPercent : cellProgressPercent;
 
     return (
@@ -342,7 +341,7 @@ export const AdminView = () => {
                                     state.viewMode === 'futuro' ? "bg-gold text-deep-blue" : "text-gray-500 hover:text-white"
                                 )}
                             >
-                                <EyeOff size={12} className="inline mr-1" />Futuro
+                                <Sparkles size={12} className="inline mr-1" />Metas
                             </button>
                         </div>
                     </div>
@@ -379,7 +378,7 @@ export const AdminView = () => {
                                     ? "bg-gradient-to-r from-blue-500 to-blue-400"
                                     : "bg-gradient-to-r from-purple-500 to-purple-400"
                             )}
-                            style={{ width: `${currentProgress}%` }}
+                            style={{ width: `${Math.min(currentProgress, 100)}%` }}
                         />
                     </div>
                     <p className="text-xs text-gray-500 mt-1 text-right">
@@ -387,7 +386,20 @@ export const AdminView = () => {
                     </p>
                 </section>
 
-                {/* 4. Registration Form */}
+                {/* 4. PDF Export Button - SEPARATE */}
+                {currentHistory.length > 0 && (
+                    <section>
+                        <button
+                            onClick={() => exportToPDF(currentHistory, state.adminMode, state.locations)}
+                            className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-gradient-to-r from-gold/20 to-amber-500/20 hover:from-gold/30 hover:to-amber-500/30 border border-gold/30 rounded-xl text-gold font-bold transition-all"
+                        >
+                            <Download size={18} />
+                            Baixar Lista de {state.adminMode === 'disciples' ? 'Discipuladores' : 'Células'} (PDF)
+                        </button>
+                    </section>
+                )}
+
+                {/* 5. Registration Form */}
                 <section className="space-y-2">
                     <h2 className="text-xs font-bold text-gray-500 uppercase tracking-widest ml-1">
                         {state.adminMode === 'disciples' ? 'Registrar Discipulador' : 'Registrar Líder de Célula'}
@@ -517,35 +529,21 @@ export const AdminView = () => {
                     </form>
                 </section>
 
-                {/* 5. History + PDF Export */}
+                {/* 6. History (ALL entries) */}
                 <section className="space-y-2">
-                    <div className="flex items-center justify-between">
-                        <button
-                            onClick={() => setShowHistory(!showHistory)}
-                            className="flex items-center gap-2 text-gray-400 hover:text-gray-200 transition-colors"
-                        >
+                    <button
+                        onClick={() => setShowHistory(!showHistory)}
+                        className="w-full flex items-center justify-between text-gray-400 hover:text-gray-200 transition-colors"
+                    >
+                        <div className="flex items-center gap-2">
                             <Clock size={16} />
                             <h2 className="text-xs font-bold uppercase tracking-widest">
                                 Histórico de {state.adminMode === 'disciples' ? 'Discipuladores' : 'Células'}
                             </h2>
                             <span className="bg-gray-700 px-2 py-0.5 rounded text-[10px]">{currentHistory.length}</span>
-                            {showHistory ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                        </button>
-
-                        {currentHistory.length > 0 && (
-                            <button
-                                onClick={() => exportToPDF(
-                                    currentHistory,
-                                    state.adminMode,
-                                    state.locations
-                                )}
-                                className="flex items-center gap-1 text-xs text-gold hover:text-yellow-400 transition-colors"
-                            >
-                                <Download size={14} />
-                                Baixar PDF
-                            </button>
-                        )}
-                    </div>
+                        </div>
+                        {showHistory ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                    </button>
 
                     <AnimatePresence>
                         {showHistory && (
@@ -555,11 +553,11 @@ export const AdminView = () => {
                                 exit={{ height: 0, opacity: 0 }}
                                 className="overflow-hidden"
                             >
-                                <div className="bg-gray-800/40 rounded-xl border border-gray-700/50 p-3 max-h-60 overflow-y-auto space-y-2">
+                                <div className="bg-gray-800/40 rounded-xl border border-gray-700/50 p-3 max-h-96 overflow-y-auto space-y-2">
                                     {currentHistory.length === 0 ? (
                                         <p className="text-gray-500 text-sm text-center py-4">Nenhum registro ainda</p>
                                     ) : (
-                                        currentHistory.slice(0, 30).map((entry: any) => (
+                                        currentHistory.map((entry: any) => (
                                             <div key={entry.id} className="flex items-center justify-between text-sm bg-gray-900/50 rounded-lg px-3 py-2">
                                                 <div>
                                                     <span className="text-white font-medium">
@@ -592,7 +590,7 @@ export const AdminView = () => {
                     </AnimatePresence>
                 </section>
 
-                {/* 6. Church Configuration (Collapsible) */}
+                {/* 7. Church Configuration (Collapsible) */}
                 <section className="space-y-4 pt-4 border-t border-gray-800">
                     <button
                         onClick={() => setShowConfig(!showConfig)}
@@ -732,7 +730,7 @@ export const AdminView = () => {
                     </AnimatePresence>
                 </section>
 
-                {/* 7. Reset */}
+                {/* 8. Reset */}
                 <section className="pt-8 border-t border-gray-800">
                     <button
                         onClick={handleReset}
